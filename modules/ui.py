@@ -152,6 +152,8 @@ def list_interface_input_elements():
         'stream',
         'tfs',
         'top_a',
+        'franken_step',
+        'franken_stride',
     ]
 
     # Chat elements

@@ -220,6 +220,8 @@ loaders_samplers = {
         'custom_token_bans',
         'skip_special_tokens',
         'auto_max_new_tokens',
+        'franken_step',
+        'franken_stride',
     },
     'ExLlamav2_HF': {
         'temperature',

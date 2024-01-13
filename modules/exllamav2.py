@@ -1,5 +1,6 @@
 import traceback
 from pathlib import Path
+import itertools
 
 import torch
 from exllamav2 import (
@@ -10,6 +11,7 @@ from exllamav2 import (
     ExLlamaV2Tokenizer
 )
 from exllamav2.generator import ExLlamaV2Sampler, ExLlamaV2StreamingGenerator
+from exllamav2.attn import ExLlamaV2Attention
 
 from modules import shared
 from modules.logging_colors import logger
@@ -29,6 +31,20 @@ except Exception:
     logger.warning('Failed to load flash-attention due to the following error:\n')
     traceback.print_exc()
 
+class ExLlamaV2AttentionWrapper(ExLlamaV2Attention):
+    def __init__(self, obj, new_idx):
+        object.__setattr__(self, '_obj', obj)
+        object.__setattr__(self, '_new_idx', new_idx)
+
+    def __getattribute__(self, name):
+        if name == 'layer_idx':
+            return object.__getattribute__(self, '_new_idx')
+
+        # Delegate all other attributes to the wrapped object
+        try:
+            return getattr(object.__getattribute__(self, '_obj'), name)
+        except AttributeError:
+            return object.__getattribute__(self, name)
 
 class Exllamav2Model:
     def __init__(self):
@@ -66,6 +82,8 @@ class Exllamav2Model:
         generator = ExLlamaV2StreamingGenerator(model, cache, tokenizer)
 
         result = self()
+        result.orig_modules = model.modules
+        result._stepstride = '00'
         result.model = model
         result.cache = cache
         result.tokenizer = tokenizer
@@ -92,6 +110,45 @@ class Exllamav2Model:
         return self.model.forward(token_ids[:, -1:], self.cache, input_mask=None, loras=self.loras, **kwargs).float().cpu()
 
     def generate_with_streaming(self, prompt, state):
+        step = int(state.get('franken_step', 0))
+        stride = int(state.get('franken_stride', 0))
+        if not stride:
+            stride = step * 2
+        stepstride = f'{step}{stride}'
+        if self._stepstride != stepstride:
+            self._stepstride = stepstride
+            if step:
+                layer_arrangement = []
+
+                num_layers = int((len(self.orig_modules) - 3) / 2)
+                for i in range(int((num_layers - stride) / step) + 1):
+                    layer_arrangement.append(range(i * step, i * step + stride))
+                layers = list(itertools.chain(*layer_arrangement))
+
+                print(f'Layers {num_layers} -> {len(layers)}, arrangement: {layer_arrangement}')
+
+                # modules arangement: [embedding, [...layers], rms-norm, head]
+                # where each layer is [attention, mlp]
+                self.model.modules = self.orig_modules[:1]
+                for i, idx in enumerate(layers):
+                    self.model.modules.append(ExLlamaV2AttentionWrapper(self.orig_modules[idx*2 + 1], i))
+                    self.model.modules.append(self.orig_modules[idx*2 + 2])
+                self.model.modules += self.orig_modules[-2:]
+            else:
+                self.model.modules = self.orig_modules
+            num_layers = int((len(self.model.modules) - 3) / 2)
+            self.model.head_layer_idx = len(self.model.modules) -1
+            self.model.config.num_hidden_layers = num_layers
+            self.model.last_kv_layer_idx = len(self.model.modules) -4
+            cache_class = type(self.cache)
+            del self.generator
+            del self.cache
+            print('Re-creating cache')
+            self.model.cache_map = {}
+            self.model.set_cache_map()
+            self.cache = cache_class(self.model)
+            self.generator = ExLlamaV2StreamingGenerator(self.model, self.cache, self.tokenizer)
+
         settings = ExLlamaV2Sampler.Settings()
         settings.temperature = state['temperature']
         settings.top_k = state['top_k']

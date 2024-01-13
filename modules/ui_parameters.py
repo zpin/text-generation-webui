@@ -41,6 +41,8 @@ def create_ui(default_preset):
                             shared.gradio['top_a'] = gr.Slider(0.0, 1.0, value=generate_params['top_a'], step=0.01, label='top_a')
                             shared.gradio['epsilon_cutoff'] = gr.Slider(0, 9, value=generate_params['epsilon_cutoff'], step=0.01, label='epsilon_cutoff')
                             shared.gradio['eta_cutoff'] = gr.Slider(0, 20, value=generate_params['eta_cutoff'], step=0.01, label='eta_cutoff')
+                            shared.gradio['franken_step'] = gr.Number(value=generate_params.get('franken_step', 0), label='Franken Step', info='Cut every X layers when stacking. 0 to disable.')
+                            shared.gradio['franken_stride'] = gr.Number(value=generate_params.get('franken_stride', 0), label='Franken Stride', info='Cut length when stacking. 0 to use 2 * Franken Step')
 
                         with gr.Column():
                             shared.gradio['guidance_scale'] = gr.Slider(-0.5, 2.5, step=0.05, value=generate_params['guidance_scale'], label='guidance_scale', info='For CFG. 1.5 is a good value.')
