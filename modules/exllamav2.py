@@ -31,21 +31,6 @@ except Exception:
     logger.warning('Failed to load flash-attention due to the following error:\n')
     traceback.print_exc()
 
-class ExLlamaV2AttentionWrapper(ExLlamaV2Attention):
-    def __init__(self, obj, new_idx):
-        object.__setattr__(self, '_obj', obj)
-        object.__setattr__(self, '_new_idx', new_idx)
-
-    def __getattribute__(self, name):
-        if name == 'layer_idx':
-            return object.__getattribute__(self, '_new_idx')
-
-        # Delegate all other attributes to the wrapped object
-        try:
-            return getattr(object.__getattribute__(self, '_obj'), name)
-        except AttributeError:
-            return object.__getattribute__(self, name)
-
 class Exllamav2Model:
     def __init__(self):
         pass
@@ -131,7 +116,7 @@ class Exllamav2Model:
                 # where each layer is [attention, mlp]
                 self.model.modules = self.orig_modules[:1]
                 for i, idx in enumerate(layers):
-                    self.model.modules.append(ExLlamaV2AttentionWrapper(self.orig_modules[idx*2 + 1], i))
+                    self.model.modules.append(self.orig_modules[idx*2 + 1])
                     self.model.modules.append(self.orig_modules[idx*2 + 2])
                 self.model.modules += self.orig_modules[-2:]
             else:
@@ -140,14 +125,7 @@ class Exllamav2Model:
             self.model.head_layer_idx = len(self.model.modules) -1
             self.model.config.num_hidden_layers = num_layers
             self.model.last_kv_layer_idx = len(self.model.modules) -4
-            cache_class = type(self.cache)
-            del self.generator
-            del self.cache
-            print('Re-creating cache')
-            self.model.cache_map = {}
-            self.model.set_cache_map()
-            self.cache = cache_class(self.model)
-            self.generator = ExLlamaV2StreamingGenerator(self.model, self.cache, self.tokenizer)
+            self.cache.current_seq_len = 0
 
         settings = ExLlamaV2Sampler.Settings()
         settings.temperature = state['temperature']
