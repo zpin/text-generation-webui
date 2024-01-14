@@ -37,14 +37,18 @@ class ExLlamaV2AttentionWrapper(ExLlamaV2Attention):
         object.__setattr__(self, '_new_idx', new_idx)
 
     def __getattribute__(self, name):
+        # Mask layer_idx
         if name == 'layer_idx':
             return object.__getattribute__(self, '_new_idx')
 
-        # Delegate all other attributes to the wrapped object
         try:
-            return getattr(object.__getattribute__(self, '_obj'), name)
+            # Delegate all other attributes to the wrapped object
+            attr = getattr(object.__getattribute__(self, '_obj'), name)
+            if not callable(attr):
+                return attr
         except AttributeError:
-            return object.__getattribute__(self, name)
+            pass
+        return object.__getattribute__(self, name)
 
 class Exllamav2Model:
     def __init__(self):
